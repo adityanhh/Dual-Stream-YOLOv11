@@ -55,7 +55,13 @@ from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.loss import v8DetectionLoss
 from ultralytics.utils.torch_utils import fuse_conv_and_bn, initialize_weights, intersect_dicts, scale_img, time_sync
 
-from ..modules import BiFocus, C3k2_BiFocus, DEA, DECA, DEPA, DepthWiseConv, FocusH, FocusV
+try:
+    from ..modules import BiFocus, C3k2_BiFocus, DEA, DECA, DEPA, DepthWiseConv, FocusH, FocusV
+except (ImportError, ValueError):
+    try:
+        from modules import BiFocus, C3k2_BiFocus, DEA, DECA, DEPA, DepthWiseConv, FocusH, FocusV
+    except (ImportError, ValueError):
+        from DualStreamYOLO11.modules import BiFocus, C3k2_BiFocus, DEA, DECA, DEPA, DepthWiseConv, FocusH, FocusV
 
 
 def make_divisible(x, divisor):
@@ -443,11 +449,13 @@ class DualStreamDetectionModel(BaseModel):
 class DualStreamYOLO:
     """
     High-level user-friendly wrapper for Dual-Stream YOLOv11.
-    Provides standard .train(), .val(), .predict(), .to() interface similar to Ultralytics YOLO().
+    Provides standard .train(), .val(), .predict(), .load() interface matching Ultralytics YOLO().
     """
 
-    def __init__(self, model_cfg='yolo11n-dualstream.yaml', weights=None):
+    def __init__(self, model_cfg='configs/yolo11n-dualstream.yaml', weights=None):
+        self.cfg = str(model_cfg)
         self.model = DualStreamDetectionModel(cfg=model_cfg)
+        self.last_trainer = None
         if weights:
             self.load(weights)
 
@@ -455,6 +463,99 @@ class DualStreamYOLO:
         """Load weights from checkpoint."""
         self.model.load_pretrained_weights(weights_path)
         return self
+
+    def train(self, **kwargs):
+        """
+        Train the model using kwargs dictionary matching standard YOLO training arguments.
+        """
+        try:
+            from ..engine.trainer import DualStreamTrainer
+        except (ImportError, ValueError):
+            try:
+                from engine.trainer import DualStreamTrainer
+            except (ImportError, ValueError):
+                from DualStreamYOLO11.engine.trainer import DualStreamTrainer
+
+        data = kwargs.get('data', 'configs/hujan2.yaml')
+        epochs = kwargs.get('epochs', 100)
+        imgsz = kwargs.get('imgsz', 640)
+        batch = kwargs.get('batch', 16)
+        lr0 = kwargs.get('lr0', 0.01)
+        lrf = kwargs.get('lrf', 0.01)
+        momentum = kwargs.get('momentum', 0.937)
+        weight_decay = kwargs.get('weight_decay', 0.0005)
+        warmup_epochs = kwargs.get('warmup_epochs', 3)
+        device = kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+        project = kwargs.get('project', 'runs/train')
+        name = kwargs.get('name', 'exp')
+
+        trainer = DualStreamTrainer(
+            model_cfg=self.cfg,
+            data_cfg=data,
+            epochs=epochs,
+            batch_size=batch,
+            imgsz=imgsz,
+            lr0=lr0,
+            lrf=lrf,
+            momentum=momentum,
+            weight_decay=weight_decay,
+            warmup_epochs=warmup_epochs,
+            device=str(device),
+            project=project,
+            name=name,
+        )
+        # Transfer current model weights to trainer model
+        trainer.model = self.model.to(trainer.device)
+        self.last_trainer = trainer
+        save_dir = trainer.train()
+        self.model = trainer.model
+        return save_dir
+
+    def val(self, data=None, batch_size=16, imgsz=640, device=None, **kwargs):
+        """
+        Run validation on validation set and return ValResults.
+        """
+        try:
+            from ..engine.validator import DualStreamValidator
+        except (ImportError, ValueError):
+            try:
+                from engine.validator import DualStreamValidator
+            except (ImportError, ValueError):
+                from DualStreamYOLO11.engine.validator import DualStreamValidator
+
+        if data is None and self.last_trainer is not None:
+            data = self.last_trainer.data_cfg
+        elif data is None:
+            data = 'configs/hujan2.yaml'
+
+        validator = DualStreamValidator(
+            model=self.model,
+            data_cfg=data,
+            batch_size=batch_size,
+            imgsz=imgsz,
+            device=device,
+        )
+        return validator.validate()
+
+    def predict(self, vis_img, ir_img, conf=0.25, iou=0.45, save=True, save_dir='runs/predict', **kwargs):
+        """
+        Run prediction on a pair of images.
+        """
+        try:
+            from ..engine.predictor import DualStreamPredictor
+        except (ImportError, ValueError):
+            try:
+                from engine.predictor import DualStreamPredictor
+            except (ImportError, ValueError):
+                from DualStreamYOLO11.engine.predictor import DualStreamPredictor
+
+        predictor = DualStreamPredictor(
+            model_cfg=self.cfg,
+            conf=conf,
+            iou=iou,
+        )
+        predictor.model = self.model
+        return predictor.predict_pair(vis_img, ir_img, save=save, save_dir=save_dir)
 
     def to(self, device):
         """Move model to specified device."""
