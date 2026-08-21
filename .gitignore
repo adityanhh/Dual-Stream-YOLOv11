@@ -27,7 +27,6 @@ wheels/
 *.onnx
 *.engine
 datasets/
-data/
 runs/
 temp_*/
 
