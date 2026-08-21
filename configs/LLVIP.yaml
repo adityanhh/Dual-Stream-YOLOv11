@@ -1,0 +1,19 @@
+# Dataset configuration for LLVIP (Low-Light Visible-Infrared Paired Dataset)
+# RGB (Visible) and IR (Infrared) Pedestrian Detection
+
+path: ./datasets/LLVIP  # dataset root dir
+
+# Training split directories (relative to 'path')
+train_vis: images/vis_train
+train_ir: images/Ir_train
+train_labels: labels/vis_train
+
+# Validation split directories (relative to 'path')
+val_vis: images/vis_val
+val_ir: images/Ir_val
+val_labels: labels/vis_val
+
+# Classes
+nc: 1
+names:
+  0: person
