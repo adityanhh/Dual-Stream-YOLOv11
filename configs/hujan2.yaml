@@ -1,0 +1,19 @@
+# Dataset configuration for Hujan-2 (Dataset Primer Aditya)
+# Cross-modality Visible (RGB) and Thermal/Infrared (IR) Object Detection
+
+path: /kaggle/input/hujan-2  # Path dataset di Kaggle (atau sesuaikan path lokal)
+
+# Direktori split training (relatif terhadap 'path')
+train_vis: images/vis_train
+train_ir: images/Ir_train
+train_labels: labels/vis_train
+
+# Direktori split validation (relatif terhadap 'path')
+val_vis: images/vis_val
+val_ir: images/Ir_val
+val_labels: labels/vis_val
+
+# Jumlah dan nama kelas (sesuaikan jika ada kelas tambahan)
+nc: 1
+names:
+  0: person
