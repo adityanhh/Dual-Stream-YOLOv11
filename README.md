@@ -153,20 +153,110 @@ python DualStreamYOLO11/test_end_to_end.py
 
 ---
 
-## 📖 Landasan Teori untuk Laporan Tugas Akhir (Skripsi)
+## 📖 Landasan Teori & Formulasi Matematis (Untuk Bab 3 / Bab 4 Skripsi)
 
-### Formulasi Matematis DEA (Dual-context Collaborative Enhancement):
-1. **DECA (Channel Attention):**
-   $$w_{vi} = \sigma\left(W_2 \cdot \text{ReLU}(W_1 \cdot \text{GAP}(x_{vi}))\right)$$
-   $$w_{ir} = \sigma\left(W_2 \cdot \text{ReLU}(W_1 \cdot \text{GAP}(x_{ir}))\right)$$
-   $$G = \text{ConvPyramid}(\text{Conv}_{3\times 3}([x_{vi}, x_{ir}]))$$
-   $$\hat{x}_{vi} = x_{vi} \odot \sigma(w_{ir} \odot G), \quad \hat{x}_{ir} = x_{ir} \odot \sigma(w_{vi} \odot G)$$
+Bagian ini menyajikan penurunan rumus matematis lengkap dari setiap modul kustom yang dibangun pada arsitektur **Dual-Stream YOLOv11**, mencakup **BiFocus**, **DECA**, **DEPA**, dan fusi **DEA**.
 
-2. **DEPA (Spatial Pixel Attention):**
-   $$S_{vi} = \text{Conv}_{5\times 5}([\text{Conv}_{3\times 3}(x_{vi}), \text{Conv}_{7\times 7}(x_{vi})])$$
-   $$S_{ir} = \text{Conv}_{5\times 5}([\text{Conv}_{3\times 3}(x_{ir}), \text{Conv}_{7\times 7}(x_{ir})])$$
-   $$G_{sp} = \sigma(\text{Conv}_{3\times 3}(x_{vi}) + \text{Conv}_{3\times 3}(x_{ir}))$$
-   $$\tilde{x}_{vi} = x_{vi} \odot \sigma(G_{sp} + S_{ir}), \quad \tilde{x}_{ir} = x_{ir} \odot \sigma(G_{sp} + S_{vi})$$
+---
 
-3. **Fusi Akhir (DEA Output):**
-   $$x_{fused} = \sigma(\tilde{x}_{vi} + \tilde{x}_{ir})$$
+### 1. Tabel Notasi Simbol Matematis
+
+| Simbol | Keterangan & Dimensi Tensor |
+| :--- | :--- |
+| $\mathbf{x}_{vi} \in \mathbb{R}^{B \times C \times H \times W}$ | *Feature map* masukan dari stream citra Visible (RGB) |
+| $\mathbf{x}_{ir} \in \mathbb{R}^{B \times C \times H \times W}$ | *Feature map* masukan dari stream citra Infrared (IR) |
+| $B, C, H, W$ | Berturut-turut: *Batch size*, Jumlah *Channel*, Tinggi (*Height*), Lebar (*Width*) |
+| $[\mathbf{a}; \mathbf{b}]$ | Operasi konkatenasi tensor (*channel concatenation*) pada dimensi kanal ($C$) |
+| $\odot$ | Perkalian Hadamard (*element-wise multiplication*) |
+| $\sigma(\cdot)$ | Fungsi aktivasi Sigmoid: $\sigma(z) = \frac{1}{1 + e^{-z}} \in [0, 1]$ |
+| $\text{GAP}(\cdot)$ | *Global Average Pooling*: $\text{GAP}(\mathbf{x})_c = \frac{1}{H \times W} \sum_{i=1}^H \sum_{j=1}^W \mathbf{x}_{c, i, j}$ |
+| $\text{Conv}_{k \times k}(\cdot)$ | Operasi konvolusi 2D standar dengan ukuran kernel $k \times k$ |
+| $\text{DWConv}_{k \times k}(\cdot)$ | *Depthwise Separable Convolution* dengan kernel $k \times k$ |
+
+---
+
+### 2. Modul `C3k2_BiFocus` & `BiFocus` (Bi-directional Decoupled Focus)
+
+Modul **BiFocus** membagi masukan spasial menjadi dua komponen ortogonal (horizontal dan vertikal) untuk menangkap dependensi piksel bertetangga (*local*) maupun jarak jauh (*remote*) sebelum digabungkan melalui *depthwise convolution*:
+
+1. **Horizontal Decoupled Focus ($\text{FocusH}$):**
+   Memisahkan piksel spasial genap dan ganjil pada sumbu horizontal:
+   $$\mathbf{x}_1^H[:, :, 2i, :] = \mathbf{x}[:, :, 2i, 2j], \quad \mathbf{x}_1^H[:, :, 2i+1, :] = \mathbf{x}[:, :, 2i+1, 2j+1]$$
+   $$\mathbf{x}_2^H[:, :, 2i, :] = \mathbf{x}[:, :, 2i, 2j+1], \quad \mathbf{x}_2^H[:, :, 2i+1, :] = \mathbf{x}[:, :, 2i+1, 2j]$$
+   Fitur yang terpisah diproses dengan konvolusi dan direkonstruksi kembali ke dimensi $(B, C, H, W)$ menghasilkan $F_H(\mathbf{x})$.
+
+2. **Vertical Decoupled Focus ($\text{FocusV}$):**
+   Memisahkan piksel spasial genap dan ganjil pada sumbu vertikal dengan prinsip yang sama menghasilkan $F_V(\mathbf{x}) \in \mathbb{R}^{B \times C \times H \times W}$.
+
+3. **Fusi BiFocus:**
+   Menggabungkan fitur awal dengan respon horizontal dan vertikal:
+   $$\mathbf{x}_{cat} = [\mathbf{x}; F_H(\mathbf{x}); F_V(\mathbf{x})] \in \mathbb{R}^{B \times 3C \times H \times W}$$
+   $$\text{BiFocus}(\mathbf{x}) = \text{Conv}_{1 \times 1}\left(\text{DWConv}_{3 \times 3}(\mathbf{x}_{cat})\right) \in \mathbb{R}^{B \times C \times H \times W}$$
+
+---
+
+### 3. Modul `DECA` (*Dual Semantic Enhancing Channel Weight Assignment*)
+
+**Tujuan:** Mengekstrak dependensi semantik kanal antar-modalitas sehingga informasi kanal yang menonjol pada IR dapat memperkuat representasi RGB, dan sebaliknya.
+
+```text
+[x_vi, x_ir] ──> GAP ──> MLP ──> w_vi (1x1xC), w_ir (1x1xC)
+      │
+      └──> Concat ──> Conv3x3 ──> ConvPyramid ──> Glob (1x1xC)
+                                                    │
+x_vi' = x_vi * Sigmoid(w_ir * Glob) <───────────────┤
+x_ir' = x_ir * Sigmoid(w_vi * Glob) <───────────────┘
+```
+
+#### Langkah-langkah Matematis:
+
+1. **Vektor Konteks Kanal Tiap Modalitas:**
+   Menggunakan *Global Average Pooling* diikuti Multi-Layer Perceptron (MLP) dengan rasio reduksi $r = 16$:
+   $$\mathbf{w}_{vi} = \sigma\left(\mathbf{W}_2 \cdot \text{ReLU}(\mathbf{W}_1 \cdot \text{GAP}(\mathbf{x}_{vi}))\right) \in \mathbb{R}^{B \times C \times 1 \times 1}$$
+   $$\mathbf{w}_{ir} = \sigma\left(\mathbf{W}_2 \cdot \text{ReLU}(\mathbf{W}_1 \cdot \text{GAP}(\mathbf{x}_{ir}))\right) \in \mathbb{R}^{B \times C \times 1 \times 1}$$
+   di mana $\mathbf{W}_1 \in \mathbb{R}^{\frac{C}{r} \times C}$ dan $\mathbf{W}_2 \in \mathbb{R}^{C \times \frac{C}{r}}$.
+
+2. **Konteks Global Bersama (*Joint Semantic Context*):**
+   Fitur RGB dan IR digabungkan pada dimensi kanal, lalu dikompresi dan diproses melalui piramida konvolusi bertingkat (*Convolution Pyramid*):
+   $$\mathbf{x}_{comp} = \text{SiLU}\left(\text{Conv}_{3\times 3}([\mathbf{x}_{vi}; \mathbf{x}_{ir}])\right) \in \mathbb{R}^{B \times C \times H \times W}$$
+   $$\mathbf{G} = \text{Conv}_{k_3}\left(\text{Conv}_{k_2}\left(\text{Conv}_{k_1}(\mathbf{x}_{comp})\right)\right) \in \mathbb{R}^{B \times C \times 1 \times 1}$$
+   *(Jika ukuran resolusi $H, W < 80$, digunakan *spatial mean* $\mathbf{G} = \frac{1}{HW}\sum \mathbf{x}_{comp}$)*.
+
+3. **Pemberian Bobot Silang (*Cross-Modal Modulation*):**
+   Bobot kanal IR ($\mathbf{w}_{ir}$) digunakan untuk memperkaya fitur RGB ($\mathbf{x}_{vi}$), dan sebaliknya:
+   $$\mathbf{x}'_{vi} = \mathbf{x}_{vi} \odot \sigma(\mathbf{w}_{ir} \odot \mathbf{G}) \in \mathbb{R}^{B \times C \times H \times W}$$
+   $$\mathbf{x}'_{ir} = \mathbf{x}_{ir} \odot \sigma(\mathbf{w}_{vi} \odot \mathbf{G}) \in \mathbb{R}^{B \times C \times H \times W}$$
+
+---
+
+### 4. Modul `DEPA` (*Dual Spatial Enhancing Pixel Weight Assignment*)
+
+**Tujuan:** Mempelajari korelasi posisi/spasial piksel objek lintas modalitas dengan *multi-scale spatial receptive fields* (kernel $3\times 3$ dan $7\times 7$).
+
+#### Langkah-langkah Matematis:
+
+1. **Ekstraksi Atensi Spasial Multi-Skala:**
+   Untuk modalitas Visible ($\mathbf{x}'_{vi}$):
+   $$\mathbf{S}_{vi} = \text{Conv}_{5\times 5}\left(\left[\text{Conv}_{3\times 3}(\mathbf{x}'_{vi}); \text{Conv}_{7\times 7}(\mathbf{x}'_{vi})\right]\right) \in \mathbb{R}^{B \times 1 \times H \times W}$$
+   Untuk modalitas Infrared ($\mathbf{x}'_{ir}$):
+   $$\mathbf{S}_{ir} = \text{Conv}_{5\times 5}\left(\left[\text{Conv}_{3\times 3}(\mathbf{x}'_{ir}); \text{Conv}_{7\times 7}(\mathbf{x}'_{ir})\right]\right) \in \mathbb{R}^{B \times 1 \times H \times W}$$
+
+2. **Peta Spasial Global Bersama:**
+   Menggabungkan proyeksi spasial kedua modalitas:
+   $$\mathbf{G}_{spatial} = \sigma\left(\text{Conv}_{3\times 3}(\mathbf{x}'_{vi}) + \text{Conv}_{3\times 3}(\mathbf{x}'_{ir})\right) \in \mathbb{R}^{B \times 1 \times H \times W}$$
+
+3. **Pemberian Bobot Spasial Silang:**
+   $$\mathbf{W}_{spatial}^{vi} = \sigma(\mathbf{G}_{spatial} + \mathbf{S}_{vi}) \in \mathbb{R}^{B \times 1 \times H \times W}$$
+   $$\mathbf{W}_{spatial}^{ir} = \sigma(\mathbf{G}_{spatial} + \mathbf{S}_{ir}) \in \mathbb{R}^{B \times 1 \times H \times W}$$
+   $$\tilde{\mathbf{x}}_{vi} = \mathbf{x}'_{vi} \odot \mathbf{W}_{spatial}^{ir} \in \mathbb{R}^{B \times C \times H \times W}$$
+   $$\tilde{\mathbf{x}}_{ir} = \mathbf{x}'_{ir} \odot \mathbf{W}_{spatial}^{vi} \in \mathbb{R}^{B \times C \times H \times W}$$
+
+---
+
+### 5. Fusi Akhir `DEA` (Dual-context Collaborative Enhancement)
+
+Hasil peningkatan semantik kanal (DECA) dan peningkatan spasial piksel (DEPA) dari kedua modalitas digabungkan menjadi satu representasi multi-modalitas tunggal yang diperkuat:
+
+$$\mathbf{x}_{fused} = \sigma\left(\tilde{\mathbf{x}}_{vi} + \tilde{\mathbf{x}}_{ir}\right) \in \mathbb{R}^{B \times C \times H \times W}$$
+
+Tensor $\mathbf{x}_{fused}$ pada level $P_3, P_4, P_5$ selanjutnya diteruskan ke blok **PANet Neck** berbasis `C3k2` dan dideteksi oleh **Decoupled Detect Head** YOLOv11.
