@@ -15,8 +15,16 @@ from torchvision.ops import nms
 from ultralytics.utils import LOGGER
 from ultralytics.utils.ops import scale_boxes
 
-from ..data.augment import synchronized_letterbox
-from ..models.dualstream_model import DualStreamDetectionModel
+try:
+    from ..data.augment import synchronized_letterbox
+    from ..models.dualstream_model import DualStreamDetectionModel
+except (ImportError, ValueError):
+    try:
+        from data.augment import synchronized_letterbox
+        from models.dualstream_model import DualStreamDetectionModel
+    except (ImportError, ValueError):
+        from DualStreamYOLO11.data.augment import synchronized_letterbox
+        from DualStreamYOLO11.models.dualstream_model import DualStreamDetectionModel
 
 
 def non_max_suppression_dualstream(prediction, conf_thres=0.25, iou_thres=0.45):

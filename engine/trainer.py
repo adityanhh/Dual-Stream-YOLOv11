@@ -21,8 +21,16 @@ from torch.optim import AdamW, SGD, lr_scheduler
 from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.torch_utils import ModelEMA
 
-from ..models.dualstream_model import DualStreamDetectionModel
-from ..data.dataset import build_dualstream_dataloader
+try:
+    from ..models.dualstream_model import DualStreamDetectionModel
+    from ..data.dataset import build_dualstream_dataloader
+except (ImportError, ValueError):
+    try:
+        from models.dualstream_model import DualStreamDetectionModel
+        from data.dataset import build_dualstream_dataloader
+    except (ImportError, ValueError):
+        from DualStreamYOLO11.models.dualstream_model import DualStreamDetectionModel
+        from DualStreamYOLO11.data.dataset import build_dualstream_dataloader
 
 
 class DualStreamTrainer:

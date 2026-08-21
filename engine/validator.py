@@ -10,8 +10,16 @@ from torchvision.ops import box_iou
 
 from ultralytics.utils import LOGGER
 
-from ..data.dataset import build_dualstream_dataloader
-from .predictor import non_max_suppression_dualstream
+try:
+    from ..data.dataset import build_dualstream_dataloader
+    from .predictor import non_max_suppression_dualstream
+except (ImportError, ValueError):
+    try:
+        from data.dataset import build_dualstream_dataloader
+        from engine.predictor import non_max_suppression_dualstream
+    except (ImportError, ValueError):
+        from DualStreamYOLO11.data.dataset import build_dualstream_dataloader
+        from DualStreamYOLO11.engine.predictor import non_max_suppression_dualstream
 
 
 class ValResults:

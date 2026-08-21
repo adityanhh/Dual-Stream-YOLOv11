@@ -11,7 +11,13 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 import yaml
 
-from .augment import synchronized_letterbox, synchronized_random_flip
+try:
+    from .augment import synchronized_letterbox, synchronized_random_flip
+except (ImportError, ValueError):
+    try:
+        from data.augment import synchronized_letterbox, synchronized_random_flip
+    except (ImportError, ValueError):
+        from DualStreamYOLO11.data.augment import synchronized_letterbox, synchronized_random_flip
 
 
 class DualStreamDataset(Dataset):
