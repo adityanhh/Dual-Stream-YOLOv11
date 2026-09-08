@@ -488,6 +488,7 @@ class DualStreamYOLO:
         device = kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
         project = kwargs.get('project', 'runs/train')
         name = kwargs.get('name', 'exp')
+        amp = kwargs.get('amp', False)
 
         trainer = DualStreamTrainer(
             model_cfg=self.model,
@@ -503,6 +504,7 @@ class DualStreamYOLO:
             device=device,
             project=project,
             name=name,
+            amp=amp,
         )
         self.last_trainer = trainer
         save_dir = trainer.train()

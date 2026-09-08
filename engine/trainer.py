@@ -54,6 +54,7 @@ class DualStreamTrainer:
         pretrained_weights=None,
         project='runs/dualstream_train',
         name='exp',
+        amp=False,
     ):
         if isinstance(device, int) or (isinstance(device, str) and device.isdigit()):
             self.device = torch.device(f'cuda:{device}' if torch.cuda.is_available() else 'cpu')
@@ -105,7 +106,7 @@ class DualStreamTrainer:
         self.scheduler = lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
 
         # 4. Mixed precision scaler & EMA
-        self.use_amp = (self.device.type == 'cuda')
+        self.use_amp = amp and (self.device.type == 'cuda')
         if self.use_amp:
             try:
                 self.scaler = torch.amp.GradScaler('cuda', enabled=True)
