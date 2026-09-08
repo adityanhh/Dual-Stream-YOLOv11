@@ -88,14 +88,29 @@ class DualStreamTrainer:
         )
 
         # 3. Setup Optimizer & Scheduler
-        self.optimizer = SGD(
-            self.model.parameters(), lr=lr0, momentum=momentum, weight_decay=weight_decay, nesterov=True
-        )
+        opt_type = str(data_cfg.get('optimizer', 'AdamW') if isinstance(data_cfg, dict) else 'AdamW').lower()
+        if 'sgd' in opt_type:
+            self.optimizer = SGD(
+                self.model.parameters(), lr=lr0, momentum=momentum, weight_decay=weight_decay, nesterov=True
+            )
+        else:
+            self.optimizer = AdamW(
+                self.model.parameters(), lr=lr0, betas=(momentum, 0.999), weight_decay=weight_decay
+            )
+
         self.lf = lambda x: ((1 + math.cos(x * math.pi / epochs)) / 2) * (1 - lrf) + lrf
         self.scheduler = lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
 
         # 4. Mixed precision scaler & EMA
-        self.scaler = amp.GradScaler(enabled=(self.device.type == 'cuda'))
+        self.use_amp = (self.device.type == 'cuda')
+        if self.use_amp:
+            try:
+                self.scaler = torch.amp.GradScaler('cuda', enabled=True)
+            except Exception:
+                self.scaler = torch.cuda.amp.GradScaler(enabled=True)
+        else:
+            self.scaler = None
+
         self.ema = ModelEMA(self.model) if hasattr(torch, 'cuda') else None
 
     def train(self):
@@ -121,14 +136,24 @@ class DualStreamTrainer:
 
                 self.optimizer.zero_grad()
 
-                with amp.autocast(enabled=(self.device.type == 'cuda')):
+                if self.use_amp and self.device.type == 'cuda':
+                    try:
+                        with torch.amp.autocast('cuda'):
+                            loss_out = self.model.loss(batch)
+                            total_loss = loss_out[0].sum() if isinstance(loss_out, tuple) else loss_out.sum()
+                        self.scaler.scale(total_loss).backward()
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
+                    except Exception:
+                        loss_out = self.model.loss(batch)
+                        total_loss = loss_out[0].sum() if isinstance(loss_out, tuple) else loss_out.sum()
+                        total_loss.backward()
+                        self.optimizer.step()
+                else:
                     loss_out = self.model.loss(batch)
                     total_loss = loss_out[0].sum() if isinstance(loss_out, tuple) else loss_out.sum()
-
-                # Backward pass
-                self.scaler.scale(total_loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                    total_loss.backward()
+                    self.optimizer.step()
 
                 if self.ema:
                     self.ema.update(self.model)
