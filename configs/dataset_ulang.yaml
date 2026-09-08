@@ -1,0 +1,17 @@
+# Dataset configuration for 'dataset-ulang' on Kaggle
+path: /kaggle/input/dataset-ulang/datasets
+
+# Training paths (relatif terhadap 'path')
+train_vis: train/images/vi
+train_ir: train/images/ir
+train_labels: train/labels/vi
+
+# Validation paths (relatif terhadap 'path')
+val_vis: val/images/vi
+val_ir: val/images/ir
+val_labels: val/labels/vi
+
+# Kelas deteksi
+nc: 1
+names:
+  0: person
