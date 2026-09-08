@@ -490,7 +490,7 @@ class DualStreamYOLO:
         name = kwargs.get('name', 'exp')
 
         trainer = DualStreamTrainer(
-            model_cfg=self.cfg,
+            model_cfg=self.model,
             data_cfg=data,
             epochs=epochs,
             batch_size=batch,
@@ -504,8 +504,6 @@ class DualStreamYOLO:
             project=project,
             name=name,
         )
-        # Transfer current model weights to trainer model
-        trainer.model = self.model.to(trainer.device)
         self.last_trainer = trainer
         save_dir = trainer.train()
         self.model = trainer.model

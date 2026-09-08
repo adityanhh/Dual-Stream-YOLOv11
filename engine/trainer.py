@@ -71,10 +71,13 @@ class DualStreamTrainer:
         self.save_dir.mkdir(parents=True, exist_ok=True)
 
         # 1. Initialize Model
-        LOGGER.info(f"Initializing Dual-Stream YOLOv11 from {model_cfg}...")
-        self.model = DualStreamDetectionModel(cfg=model_cfg, ch=3, ch2=3)
-        if pretrained_weights and Path(pretrained_weights).exists():
-            self.model.load_pretrained_weights(pretrained_weights)
+        if isinstance(model_cfg, nn.Module):
+            self.model = model_cfg
+        else:
+            LOGGER.info(f"Initializing Dual-Stream YOLOv11 from {model_cfg}...")
+            self.model = DualStreamDetectionModel(cfg=model_cfg, ch=3, ch2=3)
+            if pretrained_weights and Path(pretrained_weights).exists():
+                self.model.load_pretrained_weights(pretrained_weights)
         self.model.to(self.device)
 
         # 2. Build Dataloaders
