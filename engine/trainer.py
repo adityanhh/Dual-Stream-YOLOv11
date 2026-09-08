@@ -55,7 +55,10 @@ class DualStreamTrainer:
         project='runs/dualstream_train',
         name='exp',
     ):
-        self.device = torch.device(device)
+        if isinstance(device, int) or (isinstance(device, str) and device.isdigit()):
+            self.device = torch.device(f'cuda:{device}' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = torch.device(device if (torch.cuda.is_available() or device == 'cpu') else 'cpu')
         self.epochs = epochs
         self.batch_size = batch_size
         self.imgsz = imgsz

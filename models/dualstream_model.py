@@ -500,7 +500,7 @@ class DualStreamYOLO:
             momentum=momentum,
             weight_decay=weight_decay,
             warmup_epochs=warmup_epochs,
-            device=str(device),
+            device=device,
             project=project,
             name=name,
         )
