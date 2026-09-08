@@ -1,0 +1,69 @@
+# Dual-Stream YOLOv11 (DE-YOLOv11) Simple Baseline Architecture
+# Dual Backbone YOLOv11 (RGB + IR) with DEA (DECA + DEPA) Fusion
+
+nc: 80 # number of classes
+scales:
+  n: [0.50, 0.25, 1024]
+  s: [0.50, 0.50, 1024]
+  m: [0.50, 1.00, 512]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.50, 512]
+
+# Scale overrides for Nano
+scale: n
+
+# Stream 1: Visible (RGB) Backbone (Pure YOLOv11)
+backbone:
+  - [-1, 1, Conv, [64, 3, 2]] # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]] # 2-P2
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 4-P3 (RGB P3 out to DEA)
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 2, C3k2, [512, True]] # 6-P4 (RGB P4 out to DEA)
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 2, C3k2, [1024, True]] # 8-P5
+  - [-1, 1, SPPF, [1024, 5]] # 9-P5
+  - [-1, 2, C2PSA, [1024]] # 10-P5 (RGB P5 out to DEA)
+
+# Stream 2: Infrared (IR) Backbone (Pure YOLOv11)
+backbone2:
+  - [-1, 1, Conv, [64, 3, 2]] # 11-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 12-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]] # 13-P2
+  - [-1, 1, Conv, [256, 3, 2]] # 14-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 15-P3 (IR P3 out to DEA)
+  - [-1, 1, Conv, [512, 3, 2]] # 16-P4/16
+  - [-1, 2, C3k2, [512, True]] # 17-P4 (IR P4 out to DEA)
+  - [-1, 1, Conv, [1024, 3, 2]] # 18-P5/32
+  - [-1, 2, C3k2, [1024, True]] # 19-P5
+  - [-1, 1, SPPF, [1024, 5]] # 20-P5
+  - [-1, 2, C2PSA, [1024]] # 21-P5 (IR P5 out to DEA)
+
+# Cross-Modality Fusion & Detection Head
+head:
+  # Multi-Scale DEA Fusion (DECA channel attention + DEPA pixel spatial attention)
+  - [[4, 15], 1, DEA, [512, 80]] # 22 (Fused P3, stride 8)
+  - [[6, 17], 1, DEA, [512, 40]] # 23 (Fused P4, stride 16)
+  - [[10, 21], 1, DEA, [1024, 20]] # 24 (Fused P5, stride 32)
+
+  # Top-down feature aggregation (PANet YOLOv11)
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 25
+  - [[-1, 23], 1, Concat, [1]] # 26 cat Fused P4
+  - [-1, 2, C3k2, [512, False]] # 27
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 28
+  - [[-1, 22], 1, Concat, [1]] # 29 cat Fused P3
+  - [-1, 2, C3k2, [256, False]] # 30 (P3/8-small)
+
+  # Bottom-up path
+  - [-1, 1, Conv, [256, 3, 2]] # 31
+  - [[-1, 27], 1, Concat, [1]] # 32 cat head P4
+  - [-1, 2, C3k2, [512, False]] # 33 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]] # 34
+  - [[-1, 24], 1, Concat, [1]] # 35 cat Fused P5
+  - [-1, 2, C3k2, [1024, True]] # 36 (P5/32-large)
+
+  # Detect Head
+  - [[30, 33, 36], 1, Detect, [nc]] # 37 Detect(P3, P4, P5)
